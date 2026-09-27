@@ -34,6 +34,14 @@ export interface JevClientOptions {
    endpoint: string;
    model: string;
    getApiKey: () => string | undefined;
+   /**
+    * Additional provider credentials to try in order. A key is only valid at
+    * the endpoint that issued it, so each entry carries its own endpoint and
+    * model. The client moves to the next entry on an auth failure or a rate
+    * limit and stops on any other error, because a second key cannot fix a
+    * bad request or a wrong endpoint.
+    */
+   backupCredentials?: BackupCredential[];
    timeoutMs: number;
    retries: number;
    retryBaseDelayMs?: number;
@@ -48,10 +56,22 @@ export interface DecideOptions {
    signal?: AbortSignal;
 }
 
+export interface BackupCredential {
+   /** Shown in logs. Never the key itself. */
+   label: string;
+   endpoint: string;
+   model: string;
+   getApiKey: () => string | undefined;
+}
+
 export interface DecideResult {
    response: JevDecisionResponse;
    durationMs: number;
    model: string;
+   /** Label of the credential that answered. Useful when a backup was used. */
+   credentialLabel?: string;
+   /** True when the answer came from a backup rather than the primary credential. */
+   usedBackup?: boolean;
    usage?: JevUsage;
    requestId: string;
    attempts: number;
@@ -77,6 +97,14 @@ const DEFAULT_LOGGER: JevClientLogger = {
    error: () => undefined,
 };
 
+/** A credential with its endpoint already normalised. */
+interface ResolvedCredential {
+   label: string;
+   endpoint: string;
+   model: string;
+   getApiKey: () => string | undefined;
+}
+
 export class JevClient {
    private endpoint: string;
    private model: string;
@@ -85,6 +113,7 @@ export class JevClient {
    private retryBaseDelayMs: number;
    private retryMaxDelayMs: number;
    private readonly getApiKey: () => string | undefined;
+   private readonly backupCredentials: BackupCredential[];
    private readonly logger: JevClientLogger;
    private readonly fetchImpl: typeof fetch;
 
@@ -101,6 +130,7 @@ export class JevClient {
       this.endpoint = normalizeEndpoint(options.endpoint);
       this.model = options.model;
       this.getApiKey = options.getApiKey;
+      this.backupCredentials = options.backupCredentials ?? [];
       this.timeoutMs = options.timeoutMs;
       this.retries = options.retries;
       this.retryBaseDelayMs = options.retryBaseDelayMs ?? 300;
@@ -179,16 +209,18 @@ export class JevClient {
                );
             }
          try {
-            const result = await this.attempt(requestId, caller, body);
+            const result = await this.attemptWithChain(requestId, caller, body);
             const durationMs = Math.round(performance.now() - startedAt);
             this.recordSuccess();
             return {
-               response: result,
+               response: result.response,
                durationMs,
-               model: result.model,
-               usage: result.usage,
+               model: result.response.model,
+               usage: result.response.usage,
                requestId,
                attempts: attempt,
+               credentialLabel: result.credential.label,
+               usedBackup: result.usedBackup,
                };
             } catch (error) {
             const jevError = withAttempt(error, attempt, requestId);
@@ -352,15 +384,93 @@ export class JevClient {
             }
    }
 
+   /**
+    * Tries the primary credential, then each backup in order. A backup is
+    * only reached when the failure is credential specific, meaning an auth
+    * failure or a rate limit. Every other error is thrown immediately.
+    */
+   private async attemptWithChain(
+      requestId: string,
+      caller: string,
+      body: JevDecisionRequest,
+   ): Promise<{ response: JevDecisionResponse; credential: ResolvedCredential; usedBackup: boolean }> {
+      const chain: ResolvedCredential[] = [
+         {
+            label: "primary",
+            endpoint: this.endpoint,
+            model: this.model,
+            getApiKey: this.getApiKey,
+            },
+         ...this.backupCredentials.map((credential) => ({
+            label: credential.label,
+            endpoint: normalizeEndpoint(credential.endpoint),
+            model: credential.model,
+            getApiKey: credential.getApiKey,
+            })),
+      ];
+
+      for (let position = 0; position < chain.length; position += 1) {
+         const credential = chain[position] as ResolvedCredential;
+         const isLast = position === chain.length - 1;
+
+         if (!credential.getApiKey()) {
+            if (isLast) {
+               throw new JevClientError(
+                  "No Jev API key configured. Set DEFAPI_API_KEY or save a key in Settings.",
+                  { category: "JEV_AUTH_FAILURE", retryable: false, attempts: 1 },
+                  requestId,
+                  );
+               }
+            this.logger.warn("jev credential has no key, skipping", {
+               component: "jev",
+               requestId,
+               credential: credential.label,
+            });
+            continue;
+         }
+
+         try {
+            const response = await this.attempt(requestId, caller, body, credential);
+            if (position > 0) {
+               this.logger.info("jev answered from a backup credential", {
+                  component: "jev",
+                  requestId,
+                  caller,
+                  credential: credential.label,
+                  model: credential.model,
+               });
+            }
+            return { response, credential, usedBackup: position > 0 };
+         } catch (error) {
+            if (isLast || !isCredentialFailure(error)) throw error;
+            this.logger.warn("jev credential failed, trying the next one", {
+               component: "jev",
+               requestId,
+               caller,
+               credential: credential.label,
+               category: (error as JevClientError).category,
+               statusCode: (error as JevClientError).statusCode ?? null,
+            });
+         }
+      }
+
+      throw new JevClientError(
+         "No Jev API key configured. Set DEFAPI_API_KEY or save a key in Settings.",
+         { category: "JEV_AUTH_FAILURE", retryable: false, attempts: 1 },
+         requestId,
+         );
+   }
+
    private async attempt(
       requestId: string,
       caller: string,
       body: JevDecisionRequest,
+      credential: ResolvedCredential,
    ): Promise<JevDecisionResponse> {
-      const apiKey = this.getApiKey();
+      const apiKey = credential.getApiKey();
       if (!apiKey) {
          throw new JevClientError(
-             "No DefAPI API key configured. Set DEFAPI_API_KEY or save a key in Settings.",
+             "No Jev API key configured. Set DEFAPI_API_KEY or save a key in Settings.",
              { category: "JEV_AUTH_FAILURE", retryable: false, attempts: 1 },
             requestId,
             );
@@ -369,7 +479,7 @@ export class JevClient {
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       const startedAt = performance.now();
       try {
-         const response = await this.fetchImpl(`${this.endpoint}/systemone`, {
+         const response = await this.fetchImpl(`${credential.endpoint}/systemone`, {
             method: "POST",
             signal: controller.signal,
             headers: {
@@ -379,7 +489,7 @@ export class JevClient {
                "X-Request-Id": requestId,
                "User-Agent": "jevai-mcp/1.0.0",
                },
-            body: JSON.stringify({ model: this.model, state: body.state, questions: body.questions }),
+            body: JSON.stringify({ model: credential.model, state: body.state, questions: body.questions }),
                });
          if (!response.ok) {
                const text = await safeReadText(response);
@@ -511,6 +621,16 @@ function isRetryableHttpStatus(status: number): boolean {
 
 function isAuthFailureLoop(error: JevClientError, attempt: number): boolean {
    return error.category === "JEV_AUTH_FAILURE" && attempt > 1;
+}
+
+/**
+ * True when a different credential could plausibly succeed. An expired or
+ * revoked key and an exhausted quota are both credential problems. A 404 or a
+ * malformed request is not, so those never rotate.
+ */
+function isCredentialFailure(error: unknown): boolean {
+   if (!(error instanceof JevClientError)) return false;
+   return error.category === "JEV_AUTH_FAILURE" || error.category === "JEV_RATE_LIMITED";
 }
 
 function normalizeEndpoint(endpoint: string): string {

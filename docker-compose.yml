@@ -25,6 +25,12 @@ services:
          JEV_CLOUD_MODEL: ${JEV_CLOUD_MODEL:-}
          JEV_CLOUD_API_KEY: ${JEV_CLOUD_API_KEY:-}
          JEV_CLOUD_TIMEOUT_MS: ${JEV_CLOUD_TIMEOUT_MS:-25000}
+         JEV_BACKUP_2_ENDPOINT: ${JEV_BACKUP_2_ENDPOINT:-}
+         JEV_BACKUP_2_MODEL: ${JEV_BACKUP_2_MODEL:-}
+         JEV_BACKUP_2_API_KEY: ${JEV_BACKUP_2_API_KEY:-}
+         JEV_BACKUP_3_ENDPOINT: ${JEV_BACKUP_3_ENDPOINT:-}
+         JEV_BACKUP_3_MODEL: ${JEV_BACKUP_3_MODEL:-}
+         JEV_BACKUP_3_API_KEY: ${JEV_BACKUP_3_API_KEY:-}
       volumes:
          - jevai-data:/data
       healthcheck:

@@ -25,6 +25,19 @@ export interface ProcessEnv extends EnvOverridesInput {
    WEB_DIR?: string;
 }
 
+interface EnvBackupSlot {
+   label: string;
+   endpoint: string | undefined;
+   model: string | undefined;
+   apiKey: string | undefined;
+}
+
+/** Numbered backup slots, in the order the client should try them. */
+const BACKUP_SLOTS: Array<{ slot: string; label: string }> = [
+   { slot: "2", label: "backup-2" },
+   { slot: "3", label: "backup-3" },
+];
+
 const FAILURE_STATES = new Set<JevConnectionStatus["state"]>([
    "disconnected",
    "timeout",
@@ -52,11 +65,18 @@ export class AppContext {
    private readonly envKey: string | undefined;
    private readonly env: ProcessEnv;
    private lastKnownState: JevConnectionStatus["state"] = "unknown";
+   private readonly backups: EnvBackupSlot[];
 
    private constructor(env: ProcessEnv, dbPath: string) {
       this.env = env;
       this.envKey = env.DEFAPI_API_KEY?.trim() || undefined;
       this.settings = applyEnvOverrides(DEFAULT_SETTINGS, env);
+      this.backups = BACKUP_SLOTS.map(({ slot, label }) => ({
+         label,
+         endpoint: env[`JEV_BACKUP_${slot}_ENDPOINT`]?.trim() || undefined,
+         model: env[`JEV_BACKUP_${slot}_MODEL`]?.trim() || undefined,
+         apiKey: env[`JEV_BACKUP_${slot}_API_KEY`]?.trim() || undefined,
+            })).filter((backup) => backup.apiKey !== undefined);
 
       this.db = new Database(dbPath);
       this.logs = createLoggerFactory(this.settings.logging.level, this.db.logs);
@@ -66,6 +86,12 @@ export class AppContext {
          endpoint: this.settings.jev.endpoint,
          model: this.settings.jev.model,
          getApiKey: () => this.getApiKey(),
+         backupCredentials: this.backups.map((backup) => ({
+            label: backup.label,
+            endpoint: backup.endpoint ?? this.settings.jev.endpoint,
+            model: backup.model ?? this.settings.jev.model,
+            getApiKey: () => backup.apiKey,
+               })),
          timeoutMs: this.settings.jev.timeoutMs,
          retries: this.settings.jev.retries,
          retryBaseDelayMs: this.settings.jev.retryBaseDelayMs,
@@ -125,6 +151,11 @@ export class AppContext {
 
    envHasKey(): boolean {
       return this.envKey !== undefined;
+        }
+
+   /** Labels of the configured backup credentials, for status and logs. */
+   backupLabels(): string[] {
+      return this.backups.map((backup) => backup.label);
         }
 
    getApiKey(): string | undefined {

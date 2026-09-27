@@ -115,6 +115,17 @@ export interface EnvOverridesInput {
    DEFAPI_API_ENDPOINT?: string;
    JEV_API_ENDPOINT?: string;
    JEV_MODEL?: string;
+   /**
+    * Backup credentials. A key is only valid at the endpoint that issued it,
+    * so each backup brings its own endpoint and model. Numbered 2 and 3 so the
+    * primary stays first.
+    */
+   JEV_BACKUP_2_ENDPOINT?: string;
+   JEV_BACKUP_2_MODEL?: string;
+   JEV_BACKUP_2_API_KEY?: string;
+   JEV_BACKUP_3_ENDPOINT?: string;
+   JEV_BACKUP_3_MODEL?: string;
+   JEV_BACKUP_3_API_KEY?: string;
    JEV_TIMEOUT_MS?: string;
    JEV_RETRIES?: string;
    JEV_RETRY_BASE_DELAY_MS?: string;

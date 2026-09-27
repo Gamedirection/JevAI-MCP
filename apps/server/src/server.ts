@@ -80,6 +80,7 @@ async function main(): Promise<void> {
       httpPort,
       mcpPort,
       apiKeySource: application.apiKeySource(),
+      backupCredentials: application.backupLabels(),
       database: application.db.path === ":memory:" ? ":memory:" : "file",
          });
 
