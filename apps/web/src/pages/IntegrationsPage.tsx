@@ -101,7 +101,7 @@ function GuidePanel({ guide }: { guide: Guide }) {
                   	{guide.steps.map((step, index) => (
                        	<li key={step.title} style={{ marginBottom: 12 }}>
                             	<strong>{step.title}</strong>
-                            	{step.detail.map((line) => (
+                            	{(step.detail ?? []).map((line) => (
                                  				<p className="muted" key={line.slice(0, 24)} style={{ margin: "4px 0" }}>{line}</p>
                                    				))}
                             	{step.command && <CodeBlock code={step.command} />}

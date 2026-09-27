@@ -149,7 +149,7 @@ export interface Guide {
    displayName: string;
    summary: string;
    requirements: string[];
-   steps: Array<{ title: string; detail: string[]; command?: string }>;
+   steps: Array<{ title: string; detail?: string[]; command?: string }>;
    verify: string;
    testCommand?: string;
    troubleshooting: Array<{ problem: string; fix: string }>;

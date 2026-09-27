@@ -1,7 +1,15 @@
 const SECRET_KEY_PATTERN =
    /(api[_-]?key|apikey|authorization|password|secret|token|access[_-]?key)/i;
 
-const RAW_KEY_PATTERN = /\b(dk-[A-Za-z0-9_-]{6,}|jv_(?:live|test)_[A-Za-z0-9_-]{6,})\b/g;
+/**
+ * Matches the raw key formats this project can hold:
+ * - dk-...            DefAPI
+ * - jv_live_/jv_test_ Jev hosted gateway keys
+ * - apikey_<hex>_<hex> TypeSafe console keys
+ * - sk-...            OpenAI style, used by the cloud fallback
+ */
+const RAW_KEY_PATTERN =
+   /\b(dk-[A-Za-z0-9_-]{6,}|jv_(?:live|test)_[A-Za-z0-9_-]{6,}|apikey_[0-9a-f]{8,}_[0-9a-f]{8,}|sk-[A-Za-z0-9_-]{16,})\b/g;
 
 export function maskSecret(value: string): string {
    const trimmed = value.trim();
