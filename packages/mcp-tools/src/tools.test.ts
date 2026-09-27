@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
    collectingRecorder,
    handleToolCall,
@@ -316,3 +316,120 @@ it("sends caller metadata in request headers context to the client", async () =>
    expect(record.repository).toBe("acme/api");
    expect(record.sessionId).toBe("sess-9");
       });
+
+describe("fallback chain", () => {
+   const failing = async (category: "JEV_UNAVAILABLE" | "JEV_BAD_REQUEST" = "JEV_UNAVAILABLE") => {
+      const { client } = fakeDecider(async () => {
+         const { JevClientError } = await import("@jevai/jev-client");
+         throw new JevClientError(
+            "upstream is down",
+            { category, retryable: true, statusCode: 503, attempts: 4 },
+            "req-1",
+         );
+            });
+      return client;
+      };
+
+   const fallbackReturning = (answers: Record<string, unknown>) => () =>
+      Promise.resolve({
+         decision: {
+            source: "local_llm" as const,
+            durationMs: 120,
+            response: { model: "qwen3.5:122b", answers: answers as never },
+            usage: { input_tokens: 20, output_tokens: 8 },
+         },
+         attempts: [],
+            });
+
+   it("answers from the fallback and tags the source", async () => {
+      const { deps, recorder } = depsFor(await failing());
+      const result = await handleToolCall(
+         "jev_should_escalate",
+         { state: "prod is down" },
+         { ...deps, fallback: fallbackReturning({ escalate: { type: "noul", noul: 0.9 } }) },
+         );
+
+      expect(result.isError).toBe(false);
+      expect(result.payload.source).toBe("local_llm");
+      expect(result.payload.model).toBe("qwen3.5:122b");
+      expect(result.payload.answers?.escalate).toEqual({ type: "noul", noul: 0.9 });
+      expect(recorder.entries[0]?.status).toBe("success");
+   });
+
+   it("keeps the original Jev failure visible in the payload", async () => {
+      const { deps } = depsFor(await failing("JEV_BAD_REQUEST"));
+      const result = await handleToolCall(
+         "jev_should_escalate",
+         { state: "x" },
+         { ...deps, fallback: fallbackReturning({ escalate: { type: "noul", noul: 0.5 } }) },
+         );
+
+      expect(result.payload.jev_error?.type).toBe("JEV_BAD_REQUEST");
+      expect(result.payload.jev_error?.status_code).toBe(503);
+   });
+
+   it("never attaches guidance to an uncalibrated answer", async () => {
+      const { deps } = depsFor(await failing());
+      const result = await handleToolCall(
+         "jev_should_escalate",
+         { state: "x" },
+         { ...deps, fallback: fallbackReturning({ escalate: { type: "noul", noul: 0.99 } }) },
+         );
+
+      const answer = result.payload.answers?.escalate as Record<string, unknown>;
+      expect(answer).not.toHaveProperty("confidence");
+      expect(answer).not.toHaveProperty("guidance");
+      expect(answer).not.toHaveProperty("verdict");
+   });
+
+   it("records the fallback in the request log so outages stay visible", async () => {
+      const { deps, recorder } = depsFor(await failing());
+      await handleToolCall(
+         "jev_should_escalate",
+         { state: "x" },
+         { ...deps, fallback: fallbackReturning({ escalate: { type: "noul", noul: 0.5 } }) },
+         );
+
+      expect(recorder.entries[0]?.errorCategory).toBe("JEV_UNAVAILABLE");
+      expect(recorder.entries[0]?.errorMessage).toContain("fallback:local_llm");
+   });
+
+   it("falls back on a 404 too, since the operator asked for every error", async () => {
+      const { deps } = depsFor(await failing("JEV_BAD_REQUEST"));
+      const result = await handleToolCall(
+         "jev_should_escalate",
+         { state: "x" },
+         { ...deps, fallback: fallbackReturning({ escalate: { type: "noul", noul: 0.5 } }) },
+         );
+      expect(result.payload.source).toBe("local_llm");
+   });
+
+   it("returns the fail-open error when the fallback also fails", async () => {
+      const { deps, recorder } = depsFor(await failing());
+      const result = await handleToolCall(
+         "jev_should_escalate",
+         { state: "x" },
+         {
+            ...deps,
+            fallback: () => Promise.reject(new Error("local and cloud both down")),
+         },
+         );
+
+      expect(result.isError).toBe(true);
+      expect(result.payload.error?.message).toContain("Fallback also failed");
+      expect(recorder.entries[0]?.status).toBe("error");
+   });
+
+   it("does not call the fallback when Jev succeeds", async () => {
+      const { client } = fakeDecider(async () =>
+         okBody({ escalate: { type: "noul", noul: 0.2, confidence: 0.95 } }),
+         );
+      const { deps } = depsFor(client);
+      const fallback = vi.fn();
+      const result = await handleToolCall("jev_should_escalate", { state: "x" }, { ...deps, fallback });
+
+      expect(fallback).not.toHaveBeenCalled();
+      expect(result.payload.source).toBeUndefined();
+      expect(result.payload.jev_error).toBeUndefined();
+   });
+});

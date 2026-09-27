@@ -97,13 +97,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
    },
 };
 
-const envInt = (value: string | undefined, fallback: number): number => {
+export const envInt = (value: string | undefined, fallback: number): number => {
    if (value === undefined || value.trim() === "") return fallback;
    const parsed = Number.parseInt(value, 10);
    return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const envBool = (value: string | undefined, fallback: boolean): boolean => {
+export const envBool = (value: string | undefined, fallback: boolean): boolean => {
    if (value === undefined || value.trim() === "") return fallback;
    const normalized = value.trim().toLowerCase();
    if (["1", "true", "yes", "on"].includes(normalized)) return true;

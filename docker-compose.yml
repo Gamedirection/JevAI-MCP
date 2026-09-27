@@ -7,15 +7,24 @@ services:
       image: jevai-mcp:1.0.0
       restart: unless-stopped
       ports:
-         - "8080:8080" # dashboard + API + /mcp on the same port
+         - "8081:8080" # dashboard + API + /mcp on the same port (8080 is taken by octo-ai-web)
          - "3001:3001" # standalone MCP port for agents that connect directly
       environment:
          DEFAPI_API_KEY: ${DEFAPI_API_KEY:-}
-         JEV_MODEL: ${JEV_MODEL:-typesafe/jev-1.13}
+         DEFAPI_API_ENDPOINT: ${DEFAPI_API_ENDPOINT:-https://api.typesafe.ai/v1}
+         JEV_MODEL: ${JEV_MODEL:-jev-1.13.0}
          LOG_LEVEL: ${LOG_LEVEL:-info}
          PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:-localhost}
          PUBLIC_PROTOCOL: ${PUBLIC_PROTOCOL:-http}
          PUBLIC_MCP_PORT: ${PUBLIC_MCP_PORT:-3001}
+         JEV_FALLBACK_ENABLED: ${JEV_FALLBACK_ENABLED:-false}
+         JEV_LOCAL_API_URL: ${JEV_LOCAL_API_URL:-}
+         JEV_LOCAL_MODEL: ${JEV_LOCAL_MODEL:-}
+         JEV_LOCAL_TIMEOUT_MS: ${JEV_LOCAL_TIMEOUT_MS:-20000}
+         JEV_CLOUD_API_URL: ${JEV_CLOUD_API_URL:-}
+         JEV_CLOUD_MODEL: ${JEV_CLOUD_MODEL:-}
+         JEV_CLOUD_API_KEY: ${JEV_CLOUD_API_KEY:-}
+         JEV_CLOUD_TIMEOUT_MS: ${JEV_CLOUD_TIMEOUT_MS:-25000}
       volumes:
          - jevai-data:/data
       healthcheck:

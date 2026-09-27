@@ -13,6 +13,7 @@ import {
    type ToolCallRecord,
    type ToolRecorder,
 } from "@jevai/mcp-tools";
+import { buildFallbackDeps } from "./fallback.ts";
 import type { AppContext } from "./context.ts";
 
 const MCP_MAX_BODY_BYTES = 2_000_000;
@@ -93,6 +94,7 @@ export function createMcpServer(application: AppContext, callerHint?: string): M
         );
 
    const recorder = buildRecorder(application);
+   const fallbackDeps = buildFallbackDeps(application);
    const deps = {
       client: application.client,
       recorder,
@@ -104,6 +106,7 @@ export function createMcpServer(application: AppContext, callerHint?: string): M
                     };
                  },
       thresholds: () => ({ ...DEFAULT_CONFIDENCE_THRESHOLDS }),
+      ...(fallbackDeps ?? {}),
         };
 
    const effectiveCallerHint = callerHint;

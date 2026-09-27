@@ -15,6 +15,7 @@ import {
    type RequestStorageMode,
 } from "@jevai/shared";
 import { JevClient, JevClientError, type DecideResult } from "@jevai/jev-client";
+import type { DecisionSource, FallbackChainResult } from "@jevai/jev-client";
 import {
    JEV_ASSESS_COMPLEXITY_DESCRIPTION,
    JEV_CHOOSE_STRATEGY_DESCRIPTION,
@@ -66,6 +67,10 @@ export interface ToolDeps {
    recorder: ToolRecorder;
    privacy: () => ToolPrivacy;
    thresholds?: () => ConfidenceThresholds;
+   fallback?: (
+      state: JevState,
+      questions: Record<string, JevQuestion>,
+   ) => Promise<FallbackChainResult>;
 }
 
 export interface ToolErrorPayload {
@@ -81,6 +86,10 @@ export interface ToolResultPayload {
    tool: string;
    duration_ms?: number;
    model?: string;
+   /** Present when the answer did not come from the calibrated Jev model. */
+   source?: DecisionSource;
+   /** The Jev failure that triggered a fallback. Kept so outages stay visible. */
+   jev_error?: ToolErrorPayload;
    answers?: Record<string, JevAnswer & { guidance?: string; verdict?: string }>;
    usage?: { input_tokens?: number; output_tokens?: number };
    error?: ToolErrorPayload;
@@ -430,6 +439,103 @@ export async function handleToolCall(
       const detail = error instanceof Error ? error.message : String(error);
       const retryable = error instanceof JevClientError ? error.retryable : false;
       const statusCode = error instanceof JevClientError ? error.statusCode : undefined;
+      const jevError: ToolErrorPayload = {
+         type: category,
+         message: detail,
+         retryable,
+         ...(statusCode !== undefined ? { status_code: statusCode } : {}),
+         };
+
+      if (deps.fallback) {
+         try {
+            const { decision, attempts } = await deps.fallback(state, questions);
+            const thresholds = deps.thresholds?.() ?? {};
+            const answers: Record<
+               string,
+               JevAnswer & { guidance?: string; verdict?: string }
+            > = {};
+            for (const [questionName, answer] of Object.entries(decision.response.answers)) {
+               // Uncalibrated answers carry no confidence, so guidance is omitted
+               // rather than invented. Agents must treat these as advisory.
+               answers[questionName] =
+                  answer.confidence === undefined
+                     ? answer
+                     : answerWithGuidance(answer, thresholds);
+               }
+            const fallbackRecord = baseRecord({
+               status: "success",
+               model: decision.response.model,
+               durationMs: decision.durationMs,
+               inputTokens: decision.usage?.input_tokens ?? null,
+               outputTokens: decision.usage?.output_tokens ?? null,
+               questionCount: Object.keys(questions).length,
+               stateSizeChars: stateSize(state),
+               errorCategory: category,
+               errorMessage: `fallback:${decision.source} after ${category}: ${detail}${
+                  attempts.length > 0 ? ` (skipped ${attempts.map((a) => a.provider).join(", ")})` : ""
+               }`,
+               stateJson:
+                  storage.requestState === "full" ? JSON.stringify(state).slice(0, 20_000) : null,
+               responseJson: storage.storeResponses
+                  ? JSON.stringify(answers).slice(0, 20_000)
+                  : null,
+               });
+            return finalize(
+               {
+                  success: true,
+                  request_id: requestId,
+                  tool: definition.name,
+                  duration_ms: fallbackRecord.durationMs,
+                  model: decision.response.model,
+                  source: decision.source,
+                  jev_error: jevError,
+                  answers,
+                  ...(decision.usage
+                     ? {
+                         usage: {
+                              ...(decision.usage.input_tokens !== undefined
+                                 ? { input_tokens: decision.usage.input_tokens }
+                                 : {}),
+                              ...(decision.usage.output_tokens !== undefined
+                                 ? { output_tokens: decision.usage.output_tokens }
+                                 : {}),
+                            },
+                        }
+                     : {}),
+               },
+               fallbackRecord,
+               );
+         } catch (fallbackError) {
+            const fallbackDetail =
+               fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+            const combined = `${detail} | fallback failed: ${fallbackDetail}`;
+            const failedRecord = baseRecord({
+               status: "error",
+               errorCategory: category,
+               errorMessage: combined,
+               questionCount: Object.keys(questions).length,
+               stateSizeChars: stateSize(state),
+               stateJson:
+                  storage.requestState === "full"
+                     ? JSON.stringify(state).slice(0, 20_000)
+                     : null,
+               });
+            return finalize(
+               {
+                  success: false,
+                  request_id: requestId,
+                  tool: definition.name,
+                  duration_ms: failedRecord.durationMs,
+                  error: {
+                     ...jevError,
+                     message: `${failOpenMessage(category, detail)} Fallback also failed: ${fallbackDetail}`,
+                    },
+                  },
+               failedRecord,
+               );
+         }
+      }
+
       const record = baseRecord({
          status: "error",
          errorCategory: category,
@@ -448,12 +554,10 @@ export async function handleToolCall(
             tool: definition.name,
             duration_ms: record.durationMs,
             error: {
-                  type: category,
+                  ...jevError,
                   message: failOpenMessage(category, detail),
-                  retryable,
-                  ...(statusCode !== undefined ? { status_code: statusCode } : {}),
-                  },
-               },
+                 },
+              },
          record,
          );
       }

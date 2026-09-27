@@ -8,6 +8,7 @@ import {
    redactText,
 } from "@jevai/shared";
 import type { AppContext } from "./context.ts";
+import { buildFallbackDeps } from "./fallback.ts";
 import { app as getApp, json } from "./routes/common.ts";
 import { dashboardRoutes, activeClientsCount } from "./routes/dashboard.ts";
 import { requestRoutes } from "./routes/requests.ts";
@@ -157,11 +158,13 @@ export function createApiApp(
          return json(c, { success: false, error: { message: "Body must be JSON" } }, 400);
                }
       const recorder = collectingRecorder();
+      const fallbackDeps = buildFallbackDeps(applicationContext);
       const result = await handleToolCall(tool, body, {
          client: applicationContext.client,
          recorder,
          privacy: () => ({ requestState: "off", storeResponses: false }),
          thresholds: () => ({ ...DEFAULT_CONFIDENCE_THRESHOLDS }),
+         ...(fallbackDeps ?? {}),
             });
       return c.json({ success: !result.isError, data: result.payload } as never,
             result.isError ? 502 : 200);
