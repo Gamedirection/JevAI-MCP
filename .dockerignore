@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+.git
+.env
+.env.*
+data
+apps/server/data
+*.db
+*.db-*
+coverage
+docs
+opencode-tmp

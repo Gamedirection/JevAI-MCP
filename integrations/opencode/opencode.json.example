@@ -1,0 +1,14 @@
+<!-- Generated file. Regenerate with: npm run generate:integrations
+     The live server generates the same files with the MCP URL configured in Settings. -->
+
+{
+   "$schema": "https://opencode.ai/config.json",
+   "mcp": {
+      "jevai": {
+         "type": "remote",
+         "url": "http://localhost:3001/mcp",
+         "enabled": true,
+         "oauth": false
+         }
+      }
+}

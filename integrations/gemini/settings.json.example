@@ -1,0 +1,12 @@
+<!-- Generated file. Regenerate with: npm run generate:integrations
+     The live server generates the same files with the MCP URL configured in Settings. -->
+
+{
+   "mcpServers": {
+      "jevai": {
+         "httpUrl": "http://localhost:3001/mcp",
+         "trusted": true,
+         "timeout": 30000
+         }
+      }
+}

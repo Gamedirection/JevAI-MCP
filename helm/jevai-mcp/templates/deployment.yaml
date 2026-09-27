@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jevai-mcp.fullname" . }}
+  labels:
+     {{- include "jevai-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- else }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  {{- end }}
+  selector:
+    matchLabels:
+       {{- include "jevai-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+         {{- include "jevai-mcp.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+         {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ default (include "jevai-mcp.fullname" .) .Values.serviceAccount.name }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: jevai-mcp
+          image: "{{ .Values.image.repository }}:{{ include "jevai-mcp.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.httpPort }}
+            - name: mcp
+              containerPort: {{ .Values.server.mcpPort }}
+          env:
+            - name: DEFAPI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "jevai-mcp.secretName" . }}
+                  key: {{ .Values.apiKeySecretKey }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "jevai-mcp.fullname" . }}-config
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml (default .Values.securityContext .Values.containerSecurityContext) | nindent 12 }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "jevai-mcp.fullname" . }}-data
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+         {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+   push:
+      branches: [main]
+   pull_request:
+
+jobs:
+   verify:
+      runs-on: ubuntu-latest
+      steps:
+         - uses: actions/checkout@v4
+         - uses: actions/setup-node@v4
+           with:
+               node-version: 22
+               cache: npm
+         - name: Install dependencies
+           run: npm ci --no-audit --no-fund
+         - name: Lint
+           run: npm run lint
+         - name: Typecheck
+           run: npm run typecheck
+         - name: Tests
+           run: npx vitest run
+         - name: Build dashboard
+           run: npm run build -w apps/web
+         - name: Build server bundle
+           run: node apps/server/scripts/build.mjs
+         - name: Build Docker image
+           run: docker build -t jevai-mcp:ci .
+         - name: Smoke test container
+           run: |
+               docker run -d --name smoke -p 8080:8080 -p 3001:3001 \
+                   -e DATABASE_PATH=/tmp/smoke.db -e LOG_LEVEL=info jevai-mcp:ci
+               for i in $(seq 1 30); do
+                   if docker exec smoke node -e "fetch('http://127.0.0.1:8080/health/live').then(r=>process.exit(r.ok?0:1))"; then
+                       break
+                   fi
+                   sleep 1
+               done
+               docker exec smoke node -e "fetch('http://127.0.0.1:8080/health/live').then(r=>{if(!r.ok)process.exit(1)})"
+               docker logs smoke
+               docker rm -f smoke

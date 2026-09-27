@@ -1,0 +1,10 @@
+{
+   "files": [],
+   "references": [
+     { "path": "packages/shared" },
+     { "path": "packages/jev-client" },
+     { "path": "packages/database" },
+     { "path": "packages/mcp-tools" },
+     { "path": "apps/server" }
+   ]
+}

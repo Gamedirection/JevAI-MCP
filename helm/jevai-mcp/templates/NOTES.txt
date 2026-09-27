@@ -1,0 +1,23 @@
+JevAI-MCP is deployed as {{ include "jevai-mcp.fullname" . }}.
+
+Dashboard and API:
+   http://{{ default (include "jevai-mcp.fullname" .) .Values.integration.dashboardHostname }}:{{ .Values.service.httpPort }}
+   (through the cluster network; add an authenticating proxy before any public exposure)
+
+Agents connect to the MCP endpoint:
+   {{ .Values.integration.publicProtocol }}://{{ include "jevai-mcp.publicHostname" . }}:{{ .Values.integration.publicPort }}/mcp
+
+1. Open the Integrations page in the dashboard and download the ZIP for your agent.
+   The ZIP contains ready-made configuration that uses the URL above.
+2. Claude Code:  claude mcp add --transport http jevai {{ .Values.integration.publicProtocol }}://{{ include "jevai-mcp.publicHostname" . }}:{{ .Values.integration.publicPort }}/mcp
+   Codex:        codex mcp add jevai --url {{ .Values.integration.publicProtocol }}://{{ include "jevai-mcp.publicHostname" . }}:{{ .Values.integration.publicPort }}/mcp
+
+This application has no login. It is an internal tool. Keep it on a private
+network, a VPN, or behind an identity-aware proxy.
+
+Verify the deployment:
+   kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+   kubectl exec deploy/{{ include "jevai-mcp.fullname" . }} -- node -e "fetch('http://127.0.0.1:{{ .Values.server.httpPort }}/health').then(r=>r.json()).then(j=>console.log(j))"
+
+Data retention runs automatically. Backups are on the {{ .Values.persistence.size }} volume
+at {{ .Values.database.path }}.

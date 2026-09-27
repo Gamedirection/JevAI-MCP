@@ -1,0 +1,16 @@
+apiVersion: v2
+name: jevai-mcp
+description: JevAI-MCP - internal MCP server and dashboard that connects AI coding agents to the Jev decision model through DefAPI.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+    - mcp
+    - model-context-protocol
+    - jev
+    - defapi
+home: https://github.com/gamedirection/jevai-mcp
+sources:
+    - https://github.com/gamedirection/jevai-mcp
+maintainers:
+    - name: gamedirection

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+   name: {{ include "jevai-mcp.fullname" . }}-config
+   labels:
+       {{- include "jevai-mcp.labels" . | nindent 6 }}
+data:
+   PORT: {{ .Values.server.httpPort | quote }}
+   MCP_PORT: {{ .Values.server.mcpPort | quote }}
+   DATABASE_PATH: {{ .Values.database.path | quote }}
+   LOG_LEVEL: {{ .Values.logLevel | quote }}
+   DEFAPI_API_ENDPOINT: "https://api.defapi.org/v1"
+   JEV_MODEL: "typesafe/jev-1.13"
+   PUBLIC_PROTOCOL: {{ .Values.integration.publicProtocol | quote }}
+   PUBLIC_HOSTNAME: {{ include "jevai-mcp.publicHostname" . | quote }}
+   PUBLIC_MCP_PORT: {{ .Values.integration.publicPort | quote }}
+   DEFAULT_TIME_RANGE: {{ .Values.dashboard.defaultTimeRange | quote }}
+   REFRESH_INTERVAL_SECONDS: {{ .Values.dashboard.refreshIntervalSeconds | quote }}
+   TOKEN_SAVINGS_ENABLED: {{ .Values.dashboard.tokenSavingsEnabled | quote }}
+   ESTIMATED_AVOIDED_TOKENS: {{ .Values.dashboard.estimatedAvoidedTokens | quote }}
+   REQUEST_STATE_STORAGE: {{ .Values.dashboard.requestStateStorage | quote }}
+   STORE_JEV_RESPONSES: {{ .Values.dashboard.storeJevResponses | quote }}
+   {{- range .Values.extraEnv }}
+   {{ .name }}: {{ .value | quote }}
+   {{- end }}

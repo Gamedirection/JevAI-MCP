@@ -1,0 +1,89 @@
+stages:
+   - install
+   - verify
+   - build
+   - package
+
+default:
+   image: node:22
+   interruptible: true
+
+variables:
+   npm_config_cache: ".npm-cache"
+
+install:
+   stage: install
+   script:
+        - npm ci --no-audit --no-fund
+   artifacts:
+         paths:
+              - node_modules/
+              - .npm-cache/
+              - package.json
+              - package-lock.json
+              - tsconfig.base.json
+              - packages/*/package.json
+              - apps/*/package.json
+         expire_in: 1 hour
+
+lint:
+   stage: verify
+   needs: [install]
+   script:
+        - npm run lint
+
+typecheck:
+   stage: verify
+   needs: [install]
+   script:
+        - npm run typecheck
+
+test:
+   stage: verify
+   needs: [install]
+   script:
+        - npx vitest run
+
+build-web:
+   stage: build
+   needs: [install]
+   script:
+        - npm run build -w apps/web
+   artifacts:
+         paths:
+              - apps/web/dist/
+         expire_in: 1 hour
+
+build-server:
+   stage: build
+   needs: [install]
+   script:
+        - node apps/server/scripts/build.mjs
+   artifacts:
+         paths:
+              - apps/server/dist/
+         expire_in: 1 hour
+
+docker:
+   stage: package
+   image: docker:27
+   needs: [build-web, build-server]
+   services:
+        - docker:27-dind
+   before_script:
+        - apk add --no-cache nodejs npm
+   script:
+        - docker build -t jevai-mcp:$CI_COMMIT_SHORT_SHA .
+        - docker run -d --name smoke -p 8080:8080 -e DATABASE_PATH=/tmp/smoke.db jevai-mcp:$CI_COMMIT_SHORT_SHA
+        - sleep 5
+        - docker exec smoke node -e "fetch('http://127.0.0.1:8080/health/live').then(r=>{if(!r.ok)process.exit(1)})"
+        - docker rm -f smoke
+
+helm:
+   stage: package
+   needs: []
+   image: alpine/helm:3
+   script:
+        - helm lint helm/jevai-mcp --set jevaiApiKey=dk-ci-placeholder
+        - helm template jevai helm/jevai-mcp --set jevaiApiKey=dk-ci-placeholder > /dev/null
+        - helm package helm/jevai-mcp -d /tmp

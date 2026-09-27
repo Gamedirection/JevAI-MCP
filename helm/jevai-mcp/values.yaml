@@ -1,0 +1,129 @@
+# Default values for jevai-mcp.
+
+image:
+   repository: jevai-mcp
+   tag: ""            # defaults to .Chart.AppVersion
+   pullPolicy: IfNotPresent
+   pullSecrets: []
+
+replicaCount: 1        # SQLite on a ReadWriteOnce volume; keep one replica
+
+# Name of the Secret that holds DEFAPI_API_KEY. The chart creates one when
+# empty and jevaiApiKey is set below.
+existingSecret: ""
+jevaiApiKey: ""       # set with --set jevaiApiKey=dk-... or a values file
+apiKeySecretKey: DEFAPI_API_KEY
+
+# Values written to the container environment. Anything you place here is set
+# as a plain env var. Secrets never belong in this map.
+extraEnv: []
+#   - name: LOG_LEVEL
+#     value: debug
+
+server:
+   httpPort: 8080
+   mcpPort: 3001
+
+database:
+   # Path inside the container. Must live under the mounted volume path.
+   path: /data/jevai.db
+
+persistence:
+   enabled: true
+   size: 2Gi
+   accessModes:
+       - ReadWriteOnce
+   storageClass: ""
+   mountPath: /data
+   claimsToKeep: 0
+
+# The URL agents are told to connect to. Agents use
+# {publicProtocol}://{publicHostname}:{publicMcpPort}/mcp
+integration:
+   publicProtocol: http
+   publicHostname: ""     # defaults to the fullname of the release
+   publicPort: 3001
+   dashboardProtocol: http
+   dashboardHostname: ""  # defaults to the fullname of the release
+
+dashboard:
+   defaultTimeRange: 7d
+   refreshIntervalSeconds: 30
+   tokenSavingsEnabled: true
+   estimatedAvoidedTokens: 1500
+   requestStateStorage: metadata_only   # off | metadata_only | full
+   storeJevResponses: true
+
+logLevel: info
+
+service:
+   type: ClusterIP
+   httpPort: 8080
+   mcpPort: 3001
+   annotations: {}
+
+# Ingress stays disabled by default: this service has no login screen, so do
+# not expose it to the public internet without an authentication proxy.
+ingress:
+   enabled: false
+   className: ""
+   annotations: {}
+   hostname: jevai-mcp.local
+   tls: []
+   #   - secretName: jevai-mcp-tls
+   #     hosts:
+   #          - jevai-mcp.local
+
+resources:
+   requests:
+      cpu: 100m
+      memory: 192Mi
+   limits:
+      cpu: "1"
+      memory: 512Mi
+
+podSecurityContext:
+   runAsNonRoot: true
+   runAsUser: 1000
+   runAsGroup: 1000
+   fsGroup: 1000
+   seccompProfile:
+      type: RuntimeDefault
+
+securityContext:
+   allowPrivilegeEscalation: false
+   readOnlyRootFilesystem: true
+   capabilities:
+      drop: ["ALL"]
+
+containerSecurityContext: {}
+
+serviceAccount:
+   create: false
+   name: ""
+   annotations: {}
+   automountServiceAccountToken: false
+
+probes:
+   startup:
+      failureThreshold: 30
+      periodSeconds: 2
+   liveness:
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
+   readiness:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+nameOverride: ""
+fullnameOverride: ""
+podAnnotations: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+extraVolumes: []
+extraVolumeMounts: []
